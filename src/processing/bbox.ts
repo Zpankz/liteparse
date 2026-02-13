@@ -39,8 +39,6 @@ const MIN_RENDERED_AREA = 200;
 /**
  * Filters images that should not be OCR'd based on various criteria.
  * Returns the filtered array of images that should be processed.
- *
- * Ported from llamaparse's filterImagesForOCR function.
  */
 export function filterImagesForOCR(
   images: Image[],

@@ -7,8 +7,6 @@ import { ParsedPage, LiteParseConfig } from '../core/types.js';
  * - Top margin (empty lines at start)
  * - Bottom margin (empty lines at end)
  * - Right margin (trailing whitespace on each line)
- *
- * Ported from llamaparse's detectAndRemoveMargin function.
  */
 function detectAndRemoveMarginOnPage(page: ParsedPage): void {
   const lines = page.text.split('\n');
