@@ -2,7 +2,7 @@ import { MarkupData } from "../core/types.js";
 
 /**
  * Apply markup tags to text based on markup data
- * Returns text with inline markup tags that can be converted to markdown later
+ * Returns text with inline markup tags that can be converted to other formats later
  */
 export function applyMarkupTags(markup: MarkupData, text: string): string {
   let result = text;

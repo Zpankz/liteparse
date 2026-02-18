@@ -4,7 +4,6 @@ import { cleanRawText } from "./cleanText.js";
 import { ProjectionTextBox, Coordinates, LiteParseConfig, ParsedPage } from "../core/types.js";
 import { PageData } from "../engines/pdf/interface.js";
 
-import { getVerticalAndHorizontalLinesFromPagePaths, VerticalLine } from "./pathUtils.js";
 import { applyMarkupTags } from "./markupUtils.js";
 
 // Minimum spaces between unsnapped bboxes (likely justified text
@@ -141,52 +140,12 @@ function fixSparseBlocks(blocks: LineRange[], rawLines: string[]) {
   }
 }
 
-function extractAnchorsPointsFromLines(
-  lines: ProjectionTextBox[][],
-  page: PageData,
-  verticalLines: VerticalLine[]
-): Anchors {
+function extractAnchorsPointsFromLines(lines: ProjectionTextBox[][], page: PageData): Anchors {
   const pageHeight = page.height;
 
   const anchorLeft: Anchor = {};
   const anchorRight: Anchor = {};
   const anchorCenter: Anchor = {};
-
-  // Add anchors from vertical lines to ensure horizontal gaps
-  // This creates left and right anchors at vertical line positions
-  for (const vLine of verticalLines) {
-    const leftAnchor = roundAnchor(vLine.x);
-    const rightAnchor = roundAnchor(vLine.x + vLine.width);
-
-    if (!anchorLeft[leftAnchor]) {
-      anchorLeft[leftAnchor] = [];
-    }
-    if (!anchorRight[rightAnchor]) {
-      anchorRight[rightAnchor] = [];
-    }
-
-    // Create dummy bboxes spanning the vertical line height to establish the anchor
-    const dummyBboxLeft = {
-      x: vLine.x,
-      y: vLine.y1,
-      w: 0,
-      h: vLine.height,
-      str: "",
-      strLength: 0,
-    } as ProjectionTextBox;
-
-    const dummyBboxRight = {
-      x: vLine.x + vLine.width,
-      y: vLine.y1,
-      w: 0,
-      h: vLine.height,
-      str: "",
-      strLength: 0,
-    } as ProjectionTextBox;
-
-    anchorLeft[leftAnchor].push(dummyBboxLeft);
-    anchorRight[rightAnchor].push(dummyBboxRight);
-  }
 
   for (const line of lines) {
     for (const bbox of line) {
@@ -1042,13 +1001,6 @@ export function projectToGrid(
   let medianWidth = pageMedianSizes.width;
   const medianHeight = pageMedianSizes.height;
 
-  const { verticalLines: rawVerticalLines, horizontalLines: _horizontalLines } =
-    getVerticalAndHorizontalLinesFromPagePaths(config, page.paths);
-  // filter vertical and horizontal lines are less than 80% of page.width / height
-  const verticalLines = rawVerticalLines.filter((line) => line.height > page.height * 0.8);
-  // horizontalLines filtered but not currently used - reserved for future detection
-  void _horizontalLines.filter((line) => line.width > page.width * 0.8);
-
   // Save original bboxes (including OCR) for text attribution
   const attributionBboxes: ProjectionTextBox[] = [];
   for (const bbox of projectionBoxes as ProjectionTextBox[]) {
@@ -1127,8 +1079,7 @@ export function projectToGrid(
   for (const block of blocks) {
     const { anchorLeft, anchorRight, anchorCenter } = extractAnchorsPointsFromLines(
       lines.slice(block.start, block.end),
-      page,
-      verticalLines
+      page
     );
 
     const snapMaps: SnapMaps = {

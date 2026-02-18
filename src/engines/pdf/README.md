@@ -21,8 +21,7 @@ interface PdfEngine {
 
 **Key Data Types:**
 - `PdfDocument` - Loaded document with `numPages`, `data` (Uint8Array), `metadata`
-- `PageData` - Extracted page: `pageNum`, `width`, `height`, `textItems`, `paths`, `images`, `annotations`
-- `Path` - Vector path: `type` ('rectangle'|'line'|'curve'), `points`, `color`, `width`
+- `PageData` - Extracted page: `pageNum`, `width`, `height`, `textItems`, `images`, `annotations`
 - `Image` - Embedded image with position, dimensions, and optional OCR data
 - `Annotation` - PDF annotation (links, etc.)
 

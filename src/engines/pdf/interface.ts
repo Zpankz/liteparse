@@ -20,7 +20,6 @@ export interface PageData {
   width: number;
   height: number;
   textItems: TextItem[];
-  paths: Path[];
   images: Image[];
   annotations?: Annotation[];
 }

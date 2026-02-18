@@ -50,7 +50,6 @@ This is the core algorithm that converts raw PDF text items into readable, prope
 **Design Decisions:**
 - **Anchor rounding**: Groups anchor x-coords by nearest 1/4 unit to handle slight variations
 - **Sparse block compression**: Reduces excessive whitespace in sparse layouts (>70% whitespace)
-- **Vertical line anchoring**: Uses PDF path lines to establish column boundaries
 - **Small text filtering**: Lines with >50% small text can be filtered (configurable)
 
 ---
@@ -80,21 +79,6 @@ This is the core algorithm that converts raw PDF text items into readable, prope
 **Design Decisions:**
 - **Spatial overlap filtering**: Prevents duplicate text when OCR and PDF extraction detect the same content at the same location. Native PDF text is preferred over OCR.
 - **Content-based deduplication**: Filters OCR text that matches existing PDF text content regardless of position. This handles cases like watermarks or embedded images containing text that already appears elsewhere on the page.
-
----
-
-### pathUtils.ts
-**Extract lines from PDF vector paths.**
-
-Provides input for layout analysis.
-
-`getVerticalAndHorizontalLinesFromPagePaths(config, paths)`:
-- Extracts vertical lines (x1 ≈ x2) from line paths
-- Extracts horizontal lines (y1 ≈ y2) from line paths
-- Extracts edges from rectangle paths
-- Returns `{ verticalLines, horizontalLines }`
-
-Used by `gridProjection.ts` to establish column anchors from visible lines.
 
 ---
 

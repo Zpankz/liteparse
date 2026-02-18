@@ -38,7 +38,7 @@ liteparse/
 
 1. **Input**: File path received (any supported format)
 2. **Conversion** (if dependencies installed): Non-PDF formats converted to PDF via LibreOffice/ImageMagick
-3. **PDF Loading**: PDF.js extracts text items, paths, images, metadata
+3. **PDF Loading**: PDF.js extracts text items, images, metadata
 4. **OCR** (if enabled): Images rendered and OCR'd for text-sparse areas
 5. **Grid Projection**: Spatial reconstruction of text layout using anchor system
 6. **Post-processing**: Bounding boxes, text cleanup

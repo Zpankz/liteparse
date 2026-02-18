@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { PdfEngine, PdfDocument, PageData, Path, Image, Annotation } from "./interface.js";
+import { PdfEngine, PdfDocument, PageData, Image, Annotation } from "./interface.js";
 import { TextItem } from "../../core/types.js";
 import { PdfiumRenderer } from "./pdfium-renderer.js";
 
@@ -240,8 +240,6 @@ export class PdfJsEngine implements PdfEngine {
       });
     }
 
-    // For now, paths and images are empty - we'll add extraction logic later
-    const paths: Path[] = [];
     const images: Image[] = [];
 
     // Skip annotation extraction - not currently used in processing pipeline
@@ -255,7 +253,6 @@ export class PdfJsEngine implements PdfEngine {
       width: viewport.width,
       height: viewport.height,
       textItems,
-      paths,
       images,
       annotations,
     };
