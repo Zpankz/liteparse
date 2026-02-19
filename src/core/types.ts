@@ -8,6 +8,9 @@ export interface LiteParseConfig {
   // HTTP OCR Server (optional - if not provided, uses Tesseract)
   ocrServerUrl?: string;
 
+  // page processing concurrency (number of pages to process in parallel per document)
+  numWorkers: number;
+
   // Processing
   maxPages: number;
   targetPages?: string;

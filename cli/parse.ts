@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import fs from "fs/promises";
 import { existsSync, readdirSync, statSync } from "fs";
+import os from "os";
 import path from "path";
 import { LiteParse } from "../src/core/parser.js";
 import { LiteParseConfig, OutputFormat } from "../src/core/types.js";
@@ -19,6 +20,7 @@ interface ParseCommandOptions {
   ocrServerUrl?: string;
   ocr?: boolean;
   ocrLanguage?: string;
+  numWorkers?: string;
   maxPages?: string;
   targetPages?: string;
   dpi?: string;
@@ -43,6 +45,7 @@ interface BatchParseCommandOptions {
   ocrServerUrl?: string;
   ocr?: boolean;
   ocrLanguage?: string;
+  numWorkers?: string;
   maxPages?: string;
   dpi?: string;
   preciseBbox?: boolean;
@@ -67,6 +70,7 @@ program
   .option("--ocr-server-url <url>", "HTTP OCR server URL (uses Tesseract if not provided)")
   .option("--no-ocr", "Disable OCR")
   .option("--ocr-language <lang>", "OCR language(s)", DEFAULT_LANGUAGE)
+  .option("--num-workers <n>", "Number of pages to OCR in parallel. Defaults to number of CPU cores minus one.")
   .option("--max-pages <n>", "Max pages to parse", DEFAULT_MAX_PAGES.toString())
   .option("--target-pages <pages>", 'Target pages (e.g., "1-5,10,15-20")')
   .option("--dpi <dpi>", "DPI for rendering", DEFAULT_DPI.toString())
@@ -104,6 +108,7 @@ program
         ocrEnabled: options.ocr !== false,
         ocrServerUrl: options.ocrServerUrl,
         ocrLanguage: options.ocrLanguage,
+        numWorkers: parseInt(options.numWorkers || (os.cpus().length - 1).toString()),
         maxPages: parseInt(options.maxPages || DEFAULT_MAX_PAGES.toString()),
         targetPages: options.targetPages,
         dpi: parseInt(options.dpi || DEFAULT_DPI.toString()),
@@ -280,6 +285,7 @@ program
   .option("--ocr-server-url <url>", "HTTP OCR server URL (uses Tesseract if not provided)")
   .option("--no-ocr", "Disable OCR")
   .option("--ocr-language <lang>", "OCR language(s)", DEFAULT_LANGUAGE)
+  .option("--num-workers <n>", "Number of pages to OCR in parallel. Defaults to number of CPU cores minus one.")
   .option("--max-pages <n>", "Max pages to parse per file", DEFAULT_MAX_PAGES.toString())
   .option("--dpi <dpi>", "DPI for rendering", DEFAULT_DPI.toString())
   .option("--no-precise-bbox", "Disable precise bounding boxes")
@@ -339,6 +345,7 @@ program
         ocrEnabled: options.ocr !== false,
         ocrServerUrl: options.ocrServerUrl,
         ocrLanguage: options.ocrLanguage,
+        numWorkers: parseInt(options.numWorkers || (os.cpus().length - 1).toString()),
         maxPages: parseInt(options.maxPages || DEFAULT_MAX_PAGES.toString()),
         dpi: parseInt(options.dpi || DEFAULT_DPI.toString()),
         preciseBoundingBox: options.preciseBbox !== false,

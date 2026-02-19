@@ -1,22 +1,35 @@
-import { createWorker, Worker } from "tesseract.js";
+import { createWorker, createScheduler, Scheduler, Worker } from "tesseract.js";
 import { OcrEngine, OcrOptions, OcrResult } from "./interface.js";
 
 export class TesseractEngine implements OcrEngine {
   name = "tesseract";
-  private worker?: Worker;
+  private scheduler?: Scheduler;
+  private workers: Worker[] = [];
   private currentLanguage?: string;
+  private concurrency: number;
+
+  constructor(concurrency: number = 4) {
+    this.concurrency = concurrency;
+  }
 
   async initialize(language: string = "eng"): Promise<void> {
-    if (this.worker && this.currentLanguage === language) {
+    if (this.scheduler && this.currentLanguage === language) {
       return; // Already initialized for this language
     }
 
-    // Clean up existing worker if language changed
-    if (this.worker) {
-      await this.worker.terminate();
+    // Clean up existing scheduler and workers if language changed
+    await this.terminate();
+
+    // Create scheduler
+    this.scheduler = createScheduler();
+
+    // Create worker pool
+    for (let i = 0; i < this.concurrency; i++) {
+      const worker = await createWorker(language, 1);
+      this.workers.push(worker);
+      this.scheduler.addWorker(worker);
     }
 
-    this.worker = await createWorker(language, 1);
     this.currentLanguage = language;
   }
 
@@ -26,18 +39,18 @@ export class TesseractEngine implements OcrEngine {
       Array.isArray(options.language) ? options.language[0] : options.language
     );
 
-    // Initialize worker if needed
+    // Initialize scheduler if needed
     await this.initialize(language);
 
-    if (!this.worker) {
-      throw new Error("Tesseract worker not initialized");
+    if (!this.scheduler) {
+      throw new Error("Tesseract scheduler not initialized");
     }
 
     try {
-      // Recognize text from image
+      // Recognize text from image using scheduler
       const {
         data: { words },
-      } = await this.worker.recognize(imagePath);
+      } = await this.scheduler.addJob("recognize", imagePath);
 
       // Convert to our OcrResult format
       const results: OcrResult[] = words.map((word) => ({
@@ -60,23 +73,33 @@ export class TesseractEngine implements OcrEngine {
   }
 
   async recognizeBatch(imagePaths: string[], options: OcrOptions): Promise<OcrResult[][]> {
-    const results: OcrResult[][] = [];
+    // Handle language
+    const language = this.normalizeLanguage(
+      Array.isArray(options.language) ? options.language[0] : options.language
+    );
 
-    for (let i = 0; i < imagePaths.length; i++) {
-      const imagePath = imagePaths[i];
-      const result = await this.recognize(imagePath, options);
-      results.push(result);
+    // Initialize scheduler if needed
+    await this.initialize(language);
+
+    if (!this.scheduler) {
+      throw new Error("Tesseract scheduler not initialized");
     }
 
-    return results;
+    // Process all images in parallel - scheduler handles distribution
+    const jobs = imagePaths.map((imagePath) =>
+      this.recognize(imagePath, options)
+    );
+
+    return Promise.all(jobs);
   }
 
   async terminate(): Promise<void> {
-    if (this.worker) {
-      await this.worker.terminate();
-      this.worker = undefined;
-      this.currentLanguage = undefined;
+    if (this.scheduler) {
+      await this.scheduler.terminate();
+      this.scheduler = undefined;
     }
+    this.workers = [];
+    this.currentLanguage = undefined;
   }
 
   /**
