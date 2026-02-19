@@ -57,6 +57,18 @@ async function loadDataset(datasetDir: string): Promise<Map<string, DatasetRow>>
   return map;
 }
 
+/**
+ * Normalize text for comparison - handles cross-platform LibreOffice differences.
+ * Collapses whitespace runs to single space and trims each line.
+ */
+function normalizeForComparison(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
 function computeTextDiff(expected: string, actual: string): string {
   // Simple line-by-line diff
   const expectedLines = expected.split("\n");
@@ -185,11 +197,18 @@ async function main() {
           continue;
         }
 
-        // Compare text output (normalize whitespace for comparison)
+        // Compare text output
+        // For non-PDF files (PPTX, DOCX, etc.), normalize whitespace because
+        // LibreOffice conversion produces different spacing across platforms.
+        // For PDFs, use strict comparison since they're parsed directly.
         const expectedText = row.output_text.trim();
         const actualText = current.text.trim();
+        const isPdf = row.document.toLowerCase().endsWith(".pdf");
 
-        if (expectedText !== actualText) {
+        const expectedCompare = isPdf ? expectedText : normalizeForComparison(expectedText);
+        const actualCompare = isPdf ? actualText : normalizeForComparison(actualText);
+
+        if (expectedCompare !== actualCompare) {
           diffs.push({
             document: row.document,
             page: row.page,
