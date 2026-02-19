@@ -120,8 +120,8 @@ function singularValueDecompose2dScale(m: number[]): { x: number; y: number } {
   return { x: Math.sqrt(sx), y: Math.sqrt(sy) };
 }
 
-// Pre-compiled regex patterns for string decoding (avoid recompilation per item)
-const BUGGY_FONT_MARKER_REGEX = /:->|>_(\d+)_\d+_<|<-:/g;
+// Pre-compiled regex patterns for string decoding
+const BUGGY_FONT_MARKER_REGEX = /:->\|>_(\d+)_\d+_<\|<-:/g;
 const BUGGY_FONT_MARKER_CHECK = ":->|>";
 const PIPE_PATTERN_REGEX = /\s*\|([^|])\|\s*/g;
 
