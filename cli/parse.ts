@@ -58,7 +58,7 @@ interface BatchParseCommandOptions {
 const program = new Command();
 
 program
-  .name("liteparse")
+  .name("lit")
   .description("OSS document parsing tool (supports PDF, DOCX, XLSX, images, and more)")
   .version("1.0.0");
 

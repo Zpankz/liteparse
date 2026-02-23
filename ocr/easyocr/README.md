@@ -66,10 +66,10 @@ Once the server is running, use it with LiteParse OSS:
 
 ```bash
 # Parse with EasyOCR
-pnpm parse document.pdf --ocr-server-url http://localhost:8828/ocr
+lit parse document.pdf --ocr-server-url http://localhost:8828/ocr
 
 # With specific language
-pnpm parse document.pdf --ocr-server-url http://localhost:8828/ocr --ocr-language zh
+lit parse document.pdf --ocr-server-url http://localhost:8828/ocr --ocr-language zh
 ```
 
 Or in code:

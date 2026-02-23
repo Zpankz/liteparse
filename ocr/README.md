@@ -52,7 +52,7 @@ Then use with LiteParse:
 
 ```bash
 # CLI
-liteparse parse document.pdf --ocr-server-url http://localhost:8828/ocr
+lit parse document.pdf --ocr-server-url http://localhost:8828/ocr
 
 # Code
 const parser = new LiteParse({

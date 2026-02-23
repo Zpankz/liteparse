@@ -34,20 +34,11 @@ npm i -g @llamaindex/liteparse
 Then use it:
 
 ```bash
-liteparse parse document.pdf
-liteparse screenshot document.pdf
+lit parse document.pdf
+lit screenshot document.pdf
 ```
 
-#### Option 2: Use with npx
-
-Run directly without installing:
-
-```bash
-npx liteparse parse document.pdf
-npx liteparse screenshot document.pdf
-```
-
-#### Option 3: Homebrew (macOS/Linux)
+#### Option 2: Homebrew (macOS/Linux)
 
 Coming soon! Once published, you'll be able to install via Homebrew:
 
@@ -56,7 +47,7 @@ brew tap yourusername/liteparse
 brew install liteparse
 ```
 
-#### Option 4: Instal from Source
+#### Option 3: Instal from Source
 
 You can clone the repo and install the CLI globally from source:
 
@@ -70,22 +61,22 @@ npm install -g ./liteparse-*.tgz
 
 ## Usage
 
-### Parse PDF Files
+### Parse Files
 
 You can run tests without building the binary using the CLI:
 
 ```bash
 # Basic parsing
-liteparse parse document.pdf
+lit parse document.pdf
 
 # Parse with specific format
-liteparse parse document.pdf --format json -o output.md
+lit parse document.pdf --format json -o output.md
 
 # Parse specific pages
-liteparse parse document.pdf --target-pages "1-5,10,15-20"
+lit parse document.pdf --target-pages "1-5,10,15-20"
 
 # Parse without OCR
-liteparse parse document.pdf --no-ocr
+lit parse document.pdf --no-ocr
 ```
 
 ### Batch Parsing
@@ -93,7 +84,7 @@ liteparse parse document.pdf --no-ocr
 You can also parse an entire directory of documents:
 
 ```bash
-liteparse batch-parse ./input-directory ./output-directory
+lit batch-parse ./input-directory ./output-directory
 ```
 
 ### Generate Screenshots
@@ -102,16 +93,16 @@ Screenshots are essential for LLM agents to extract visual information that text
 
 ```bash
 # Screenshot all pages
-liteparse screenshot document.pdf -o ./screenshots
+lit screenshot document.pdf -o ./screenshots
 
 # Screenshot specific pages
-liteparse screenshot document.pdf --pages "1,3,5" -o ./screenshots
+lit screenshot document.pdf --pages "1,3,5" -o ./screenshots
 
 # Custom output directory and DPI
-liteparse screenshot document.pdf -o ./images --dpi 300 -o ./screenshots
+lit screenshot document.pdf -o ./images --dpi 300 -o ./screenshots
 
 # Screenshot page range
-liteparse screenshot document.pdf --pages "1-10" -o ./screenshots
+lit screenshot document.pdf --pages "1-10" -o ./screenshots
 ```
 
 ### Library Usage
@@ -137,28 +128,33 @@ console.log(result.text);
 #### Parse Command
 
 ```
-$ liteparse parse <file> [options]
+$ lit parse --help
+Usage: lit parse [options] <file>
+
+Parse a document file (PDF, DOCX, XLSX, PPTX, images, etc.)
 
 Options:
-  -o, --output <file>              Output file path
-  --format <format>                Output format: json|text (default: "text")
-  --ocr-server-url <url>           HTTP OCR server URL (uses Tesseract if not provided)
-  --no-ocr                         Disable OCR
-  --ocr-language <lang>            OCR language(s) (default: "en")
-  --max-pages <n>                  Max pages to parse (default: "1000")
-  --target-pages <pages>           Target pages (e.g., "1-5,10,15-20")
-  --pdf-engine <engine>            PDF engine: pdfjs|pdfium (default: "pdfjs")
-  --dpi <dpi>                      DPI for rendering (default: "150")
-  --no-precise-bbox                Disable precise bounding boxes
-  --skip-diagonal-text             Skip diagonal text
-  --preserve-small-text            Preserve very small text
-  --config <file>                  Config file (JSON)
+  -o, --output <file>     Output file path
+  --format <format>       Output format: json|text (default: "text")
+  --ocr-server-url <url>  HTTP OCR server URL (uses Tesseract if not provided)
+  --no-ocr                Disable OCR
+  --ocr-language <lang>   OCR language(s) (default: "en")
+  --max-pages <n>         Max pages to parse (default: "10000")
+  --target-pages <pages>  Target pages (e.g., "1-5,10,15-20")
+  --dpi <dpi>             DPI for rendering (default: "150")
+  --no-precise-bbox       Disable precise bounding boxes
+  --skip-diagonal-text    Skip diagonal text
+  --preserve-small-text   Preserve very small text
+  --config <file>         Config file (JSON)
+  -q, --quiet             Suppress progress output
+  -h, --help              display help for command
 ```
 
 #### Batch Parse Command
 
 ```
-$ liteparse batch-parse --help
+$ lit batch-parse --help
+Usage: lit batch-parse [options] <input-dir> <output-dir>
 
 Parse multiple documents in batch mode (reuses PDF engine for efficiency)
 
@@ -180,14 +176,19 @@ Options:
 #### Screenshot Command
 
 ```
-$ liteparse screenshot <file> [options]
+$ lit screenshot --help
+Usage: lit screenshot [options] <file>
+
+Generate screenshots of PDF pages
 
 Options:
-  -o, --output-dir <dir>           Output directory for screenshots (default: "./screenshots")
-  --pages <pages>                  Page numbers to screenshot (e.g., "1,3,5" or "1-5")
-  --dpi <dpi>                      DPI for rendering (default: "150")
-  --format <format>                Image format: png|jpg (default: "png")
-  --config <file>                  Config file (JSON)
+  -o, --output-dir <dir>  Output directory for screenshots (default: "./screenshots")
+  --pages <pages>         Page numbers to screenshot (e.g., "1,3,5" or "1-5")
+  --dpi <dpi>             DPI for rendering (default: "150")
+  --format <format>       Image format: png|jpg (default: "png")
+  --config <file>         Config file (JSON)
+  -q, --quiet             Suppress progress output
+  -h, --help              display help for command
 ```
 
 ## OCR Setup
@@ -196,13 +197,13 @@ Options:
 
 ```bash
 # Tesseract is enabled by default
-pnpm parse document.pdf
+lit parse document.pdf
 
 # Specify language
-pnpm parse document.pdf --ocr-language fra
+lit parse document.pdf --ocr-language fra
 
 # Disable OCR
-pnpm parse document.pdf --no-ocr
+lit parse document.pdf --no-ocr
 ```
 
 ### Optional: HTTP OCR Servers
@@ -293,7 +294,7 @@ For HTTP OCR servers, just add `ocrServerUrl`:
 Use with:
 
 ```bash
-pnpm parse document.pdf --config liteparse.config.json
+lit parse document.pdf --config liteparse.config.json
 ```
 
 ## Development
