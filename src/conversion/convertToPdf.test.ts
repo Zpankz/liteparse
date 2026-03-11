@@ -30,6 +30,7 @@ vi.mock("fs", async () => {
         const toErrorPath = [
           "/Applications/LibreOffice.app/Contents/MacOS/soffice",
           "/Applications/LibreOffice.app/Contents/MacOS/libreoffice",
+          "C:\\Program Files\\Libreoffice\\program\\soffice.exe",
           "./test_fail.pdf",
           "test_fail.pdf",
           "test.docx",
