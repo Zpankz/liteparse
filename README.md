@@ -74,7 +74,7 @@ npm install -g ./liteparse-*.tgz
 You can use `liteparse` as an agent skill, downloading it with the `skills` CLI tool:
 
 ```bash
-npx skills add run-llama/llamaparse-agent-skills/liteparse
+npx skills add run-llama/llamaparse-agent-skills --skill liteparse
 ```
 
 Or copy-pasting the [`SKILL.md`](https://github.com/run-llama/llamaparse-agent-skills/blob/main/skills/liteparse/SKILL.md) file to your own skills setup.
