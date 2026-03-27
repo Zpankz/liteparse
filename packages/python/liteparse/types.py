@@ -34,6 +34,7 @@ class TextItem:
     y: float
     width: float
     height: float
+    confidence: Optional[float] = None
     fontName: Optional[str] = None
     fontSize: Optional[float] = None
 

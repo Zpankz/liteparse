@@ -86,6 +86,7 @@ def _parse_json_result(json_data: dict) -> ParseResult:
                     y=item.get("y", 0),
                     width=item.get("width", 0),
                     height=item.get("height", 0),
+                    confidence=item.get("confidence"),
                     fontName=item.get("fontName"),
                     fontSize=item.get("fontSize"),
                 )
