@@ -1,5 +1,11 @@
 # @llamaindex/liteparse
 
+## 1.4.4
+
+### Patch Changes
+
+- [#112](https://github.com/run-llama/liteparse/pull/112) [`0eda8fc`](https://github.com/run-llama/liteparse/commit/0eda8fc27d6ad2cf835894efecc22c5239025447) Thanks [@logan-markewich](https://github.com/logan-markewich)! - Improve buggy-font handling resolution
+
 ## 1.4.3
 
 ### Patch Changes
