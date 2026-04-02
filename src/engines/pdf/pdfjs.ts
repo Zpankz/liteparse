@@ -88,7 +88,6 @@ function applyTransformation(
 }
 
 // Pre-compiled regex patterns for string decoding
-const BUGGY_FONT_MARKER_REGEX = /:->\|>_(\d+)_\d+_<\|<-:/g;
 const BUGGY_FONT_MARKER_CHECK = ":->|>";
 const PIPE_PATTERN_REGEX = /\s*\|([^|])\|\s*/g;
 
@@ -289,21 +288,314 @@ function tryDecodeTabularFigures(str: string): string | null {
 }
 
 /**
- * Strip C0/C1 control characters from text (except common whitespace).
- * These can appear in PDF text due to font encoding issues but the
- * surrounding text may still be valid.
+ * Simple decode of buggy font markers: extract glyph charCodes.
+ * Used as a first pass before ligature resolution.
+ */
+function decodeBuggyFontMarkersSimple(str: string): { text: string; codes: number[] } {
+  const MARKER_RE = /:->\|>_(\d+)_\d+_<\|<-:/g;
+  const codes: number[] = [];
+  let m: RegExpExecArray | null;
+  MARKER_RE.lastIndex = 0;
+  while ((m = MARKER_RE.exec(str)) !== null) {
+    codes.push(parseInt(m[1]));
+  }
+  return { text: codes.map((c) => String.fromCharCode(c)).join(""), codes };
+}
+
+/** Composite key for font-specific ligature mapping */
+function ligatureKey(fontName: string, code: number): string {
+  return `${fontName}:${code}`;
+}
+
+/**
+ * Candidate ligature/special character replacements for control-char glyphs.
+ * Ordered roughly by frequency in English text.
+ */
+const LIGATURE_CANDIDATES = ["fi", "fl", "ff", "ffi", "ffl"] as const;
+
+/**
+ * Known English word fragments containing each ligature.
+ * Used for scoring: if inserting a candidate ligature into a context produces
+ * a string containing any of these fragments, it's evidence for that ligature.
+ *
+ * Fragments are chosen to be discriminating — they should match the intended
+ * ligature but NOT others. For example, "defin" matches "fi" but NOT "ffi"
+ * (since "deffin" is not a valid English fragment).
+ */
+const LIGATURE_FRAGMENTS: Record<string, string[]> = {
+  fi: [
+    // Common fi words/stems
+    "defin", "specif", "first", "final", "field", "file", "find", "five",
+    "fix", "fire", "firm", "fish", "fit", "figur", "ficti", "fine", "fill",
+    "filt", "fing", "finis", "benef", "certif", "classif", "confir",
+    "identif", "modif", "notif", "qualif", "satisf", "signif", "verif",
+    "financ", "fiscal", "fiber", "fidel", "filib", "fifty",
+    "profi", "magni", "manif", "paci", "sacri", "artif", "scienti",
+    "justi", "ratif", "ampli", "clari", "digni", "edif", "exempl",
+    "falsi", "forti", "glori", "horri", "intens", "purif", "simpli",
+    "speci", "terri", "unifi", "vivifi",
+  ],
+  fl: [
+    "floor", "flag", "flat", "flip", "flow", "fly", "flock", "float",
+    "fled", "flesh", "flex", "flaw", "flame", "flash", "flu",
+    "reflect", "influe", "confli", "inflat", "inflam", "afflict",
+    "profli", "overfl", "influ",
+  ],
+  ff: [
+    "affect", "afford", "differ", "effect", "offer", "buffer", "suffer",
+    "staff", "stuff", "cliff", "bluff", "affair", "offend", "offset",
+    "coffee", "toffee", "offsp", "daffod", "scaffo",
+    "effort", "offic", // Note: "offic" could also match ffi, but "ff"+"ic" is valid
+  ],
+  ffi: [
+    "offici", "effici", "traffi", "suffici", "affili", "affida",
+    "graffi", "coffin", "muffin", "puffin", "affini", "affix",
+    "suffix", "daffil",
+  ],
+  ffl: [
+    "baffle", "raffle", "shuffle", "waffle", "scaffol", "ruffle",
+    "muffle", "sniffle", "piffle", "riffle", "duffle", "truffle",
+  ],
+};
+
+/**
+ * Accumulate ligature contexts from buggy font items into a document-level map.
+ * Keyed by `fontName:glyphCode` to handle multi-font documents correctly.
+ */
+function accumulateLigatureContexts(
+  buggyItems: Array<{ codes: number[]; fontName: string }>,
+  accumulator: Map<string, Array<{ before: string; after: string }>>
+): void {
+  for (const { codes, fontName } of buggyItems) {
+    for (let i = 0; i < codes.length; i++) {
+      const code = codes[i];
+      if (code >= 0x20 || code === 0x09 || code === 0x0a || code === 0x0d) continue;
+
+      const before = codes
+        .slice(Math.max(0, i - 4), i)
+        .filter((c) => c >= 0x20)
+        .map((c) => String.fromCharCode(c))
+        .join("");
+      const after = codes
+        .slice(i + 1, i + 5)
+        .filter((c) => c >= 0x20)
+        .map((c) => String.fromCharCode(c))
+        .join("");
+
+      const key = ligatureKey(fontName, code);
+      if (!accumulator.has(key)) accumulator.set(key, []);
+      accumulator.get(key)!.push({ before, after });
+    }
+  }
+}
+
+/**
+ * Build a mapping from control-char glyph codes to their actual characters
+ * using accumulated contexts across all pages.
+ *
+ * Uses a greedy assignment strategy: score all (code, candidate) pairs,
+ * then assign the highest-confidence mapping first, ensuring each ligature
+ * is only assigned to one glyph code.
+ */
+function buildControlCharMappingFromContexts(
+  contextsByCode: Map<string, Array<{ before: string; after: string }>>
+): Map<string, string> {
+  const mapping = new Map<string, string>();
+
+  // Score all (key, candidate) pairs
+  const allScores: Array<{ code: string; candidate: string; score: number }> = [];
+
+  for (const [code, contexts] of contextsByCode) {
+    for (const candidate of LIGATURE_CANDIDATES) {
+      let matchCount = 0;
+      const fragments = LIGATURE_FRAGMENTS[candidate] || [];
+      for (const { before, after } of contexts) {
+        const combined = (before + candidate + after).toLowerCase();
+        // Check if any known word fragment appears in the combined context
+        for (const frag of fragments) {
+          if (combined.includes(frag)) {
+            matchCount++;
+            break; // One match per context is enough
+          }
+        }
+      }
+      // Score = match ratio (0 to 1) * 100
+      const matchRatio = contexts.length > 0 ? matchCount / contexts.length : 0;
+      allScores.push({ code, candidate, score: matchRatio * 100 });
+    }
+
+    // Also check for special characters (en-dash, em-dash)
+    let digitPairCount = 0;
+    let spacePairCount = 0;
+    for (const { before, after } of contexts) {
+      if (/[0-9]$/.test(before) && /^[0-9]/.test(after)) digitPairCount++;
+      if (/\s$/.test(before) || /^\s/.test(after)) spacePairCount++;
+    }
+    if (digitPairCount > 0 && digitPairCount >= contexts.length * 0.3) {
+      allScores.push({ code, candidate: "\u2013", score: digitPairCount * 4 }); // en-dash
+    }
+    if (spacePairCount > 0 && spacePairCount >= contexts.length * 0.3) {
+      allScores.push({ code, candidate: "\u2014", score: spacePairCount * 4 }); // em-dash
+    }
+  }
+
+  // Greedy assignment: assign highest-confidence mappings first.
+  // Enforce uniqueness per font — each ligature maps to at most one glyph code
+  // within the same font.
+  allScores.sort((a, b) => b.score - a.score);
+  // Track assigned candidates per font: fontName → Set<candidate>
+  const assignedPerFont = new Map<string, Set<string>>();
+
+  for (const { code, candidate, score } of allScores) {
+    if (mapping.has(code)) continue;
+    if (score <= 0) continue;
+
+    // Extract fontName from the composite key "fontName:glyphCode"
+    const fontName = code.substring(0, code.lastIndexOf(":"));
+    if (!assignedPerFont.has(fontName)) assignedPerFont.set(fontName, new Set());
+    const fontAssigned = assignedPerFont.get(fontName)!;
+
+    // Only enforce uniqueness for ligatures, not special chars
+    if (LIGATURE_CANDIDATES.includes(candidate as (typeof LIGATURE_CANDIDATES)[number])) {
+      if (fontAssigned.has(candidate)) continue;
+      fontAssigned.add(candidate);
+    }
+
+    mapping.set(code, candidate);
+  }
+
+  // Fallback: assign "fi" to any remaining unmapped codes
+  for (const code of contextsByCode.keys()) {
+    if (!mapping.has(code)) {
+      const fontName = code.substring(0, code.lastIndexOf(":"));
+      if (!assignedPerFont.has(fontName)) assignedPerFont.set(fontName, new Set());
+      const fontAssigned = assignedPerFont.get(fontName)!;
+
+      for (const candidate of LIGATURE_CANDIDATES) {
+        if (!fontAssigned.has(candidate)) {
+          mapping.set(code, candidate);
+          fontAssigned.add(candidate);
+          break;
+        }
+      }
+      if (!mapping.has(code)) {
+        mapping.set(code, "fi");
+      }
+    }
+  }
+
+  return mapping;
+}
+
+/**
+ * Apply the control-char mapping to decode a buggy font text item.
+ */
+function applyControlCharMapping(
+  codes: number[],
+  fontName: string,
+  mapping: Map<string, string>
+): string {
+  const result: string[] = [];
+  for (const code of codes) {
+    if (code >= 0x20 || code === 0x09 || code === 0x0a || code === 0x0d) {
+      result.push(String.fromCharCode(code));
+    } else {
+      const mapped = mapping.get(ligatureKey(fontName, code));
+      if (mapped) {
+        result.push(mapped);
+      }
+      // Unknown control chars are dropped
+    }
+  }
+  return result.join("");
+}
+
+/**
+ * Windows-1252 to Unicode mapping for the C1 control range (0x80-0x9F).
+ *
+ * Many PDFs encode smart quotes, em-dashes, and other typographic characters
+ * using Windows-1252 byte values. When PDF.js decodes these without a proper
+ * ToUnicode map, the raw byte values end up in the 0x80-0x9F range — which is
+ * technically the C1 control character block in Unicode. Rather than stripping
+ * them (which loses apostrophes, quotes, dashes, etc.), we map them to their
+ * correct Unicode equivalents.
+ */
+const WINDOWS_1252_TO_UNICODE: Record<number, string> = {
+  0x80: "\u20AC", // €
+  0x82: "\u201A", // ‚
+  0x83: "\u0192", // ƒ
+  0x84: "\u201E", // „
+  0x85: "\u2026", // …
+  0x86: "\u2020", // †
+  0x87: "\u2021", // ‡
+  0x88: "\u02C6", // ˆ
+  0x89: "\u2030", // ‰
+  0x8A: "\u0160", // Š
+  0x8B: "\u2039", // ‹
+  0x8C: "\u0152", // Œ
+  0x8E: "\u017D", // Ž
+  0x91: "\u2018", // '
+  0x92: "\u2019", // ' (right single quote / apostrophe)
+  0x93: "\u201C", // "
+  0x94: "\u201D", // "
+  0x95: "\u2022", // •
+  0x96: "\u2013", // –
+  0x97: "\u2014", // —
+  0x98: "\u02DC", // ˜
+  0x99: "\u2122", // ™
+  0x9A: "\u0161", // š
+  0x9B: "\u203A", // ›
+  0x9C: "\u0153", // œ
+  0x9E: "\u017E", // ž
+  0x9F: "\u0178", // Ÿ
+};
+
+/**
+ * Unicode ligature decomposition map.
+ * PDF fonts often use ligature glyphs; decomposing them to plain ASCII
+ * ensures the text is searchable and NLP-friendly.
+ */
+const LIGATURE_MAP: Record<string, string> = {
+  "\uFB00": "ff",
+  "\uFB01": "fi",
+  "\uFB02": "fl",
+  "\uFB03": "ffi",
+  "\uFB04": "ffl",
+  "\uFB05": "st",
+  "\uFB06": "st",
+};
+
+/**
+ * Strip C0 control characters from text (except common whitespace),
+ * map C1 control range (0x80-0x9F) to proper Unicode via Windows-1252,
+ * and decompose Unicode ligatures to plain text.
  */
 function stripControlChars(str: string): string {
   let result = "";
   for (const char of str) {
     const code = char.charCodeAt(0);
-    // Skip C0 controls (except tab, newline, carriage return) and C1 controls
-    if (
-      (code >= 0x00 && code <= 0x1f && code !== 0x09 && code !== 0x0a && code !== 0x0d) ||
-      (code >= 0x80 && code <= 0x9f)
-    ) {
+
+    // Decompose Unicode ligatures (fi, fl, ff, ffi, ffl, st)
+    if (LIGATURE_MAP[char]) {
+      result += LIGATURE_MAP[char];
       continue;
     }
+
+    // Map Windows-1252 C1 range to proper Unicode (smart quotes, em-dashes, etc.)
+    if (code >= 0x80 && code <= 0x9f) {
+      const mapped = WINDOWS_1252_TO_UNICODE[code];
+      if (mapped) {
+        result += mapped;
+      }
+      // Undefined C1 positions (0x81, 0x8D, 0x8F, 0x90) are dropped
+      continue;
+    }
+
+    // Skip C0 controls (except tab, newline, carriage return)
+    if (code >= 0x00 && code <= 0x1f && code !== 0x09 && code !== 0x0a && code !== 0x0d) {
+      continue;
+    }
+
     result += char;
   }
   return result;
@@ -337,12 +629,17 @@ function isGarbledFontOutput(str: string): boolean {
     const code = char.charCodeAt(0);
 
     // C0 control characters (0x00-0x1F) except common whitespace (tab, newline, carriage return)
-    // C1 control characters (0x80-0x9F)
-    if (
-      (code >= 0x00 && code <= 0x1f && code !== 0x09 && code !== 0x0a && code !== 0x0d) ||
-      (code >= 0x80 && code <= 0x9f)
-    ) {
+    if (code >= 0x00 && code <= 0x1f && code !== 0x09 && code !== 0x0a && code !== 0x0d) {
       controlCharCount++;
+    }
+    // C1 range (0x80-0x9F): only count as control chars if NOT a valid Windows-1252 character.
+    // Many PDFs use Windows-1252 encoding for smart quotes, em-dashes, etc.
+    else if (code >= 0x80 && code <= 0x9f) {
+      if (WINDOWS_1252_TO_UNICODE[code]) {
+        normalCharCount++; // Valid Windows-1252 char (smart quote, dash, etc.)
+      } else {
+        controlCharCount++; // Undefined C1 position — likely garbled
+      }
     }
     // Private Use Area (U+E000-U+F8FF) - almost always garbled
     else if (code >= 0xe000 && code <= 0xf8ff) {
@@ -433,7 +730,19 @@ export class PdfJsEngine implements PdfEngine {
   private currentPdfPath: string | null = null;
   private currentPdfData: Uint8Array | null = null;
 
+  /**
+   * Document-level accumulator for buggy font ligature contexts.
+   * Keyed by `fontName:glyphCode` to handle multi-font documents.
+   * Persists across extractPage calls so the mapping improves with more data.
+   */
+  private ligatureContextAccumulator = new Map<string, Array<{ before: string; after: string }>>();
+  private resolvedLigatureMap = new Map<string, string>();
+
   async loadDocument(input: string | Uint8Array, password?: string): Promise<PdfDocument> {
+    // Reset ligature cache for each new document
+    this.ligatureContextAccumulator = new Map();
+    this.resolvedLigatureMap = new Map();
+
     let data: Uint8Array;
     if (typeof input === "string") {
       data = new Uint8Array(await fs.readFile(input));
@@ -499,8 +808,22 @@ export class PdfJsEngine implements PdfEngine {
     const viewportHeight = viewport.height;
     const viewportTransform = viewport.transform;
 
-    const textItems: TextItem[] = [];
-    const garbledTextRegions: BoundingBox[] = [];
+    // Pre-process all items: compute geometry and identify buggy font items
+    interface PreprocessedItem {
+      item: PdfJsTextItem;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      rotation: number;
+      isBuggyFont: boolean;
+      tabularDecoded?: string;
+      buggyDecoded?: { text: string; codes: number[] };
+    }
+
+    const preprocessed: PreprocessedItem[] = [];
+    const buggyFontItems: Array<{ codes: number[]; fontName: string }> = [];
+
     for (const item of textContent.items) {
       // Skip items with zero dimensions
       if (item.height === 0 || item.width === 0) continue;
@@ -511,21 +834,10 @@ export class PdfJsEngine implements PdfEngine {
 
       // Get lower-left corner (text space origin)
       const ll = applyTransformation({ x: 0, y: 0 }, cm);
-
-      // Extract scale factors directly from matrix components (not SVD).
-      // For matrix [a, b, c, d, tx, ty]:
-      // - Horizontal scale = sqrt(a² + b²)
-      // - Vertical scale = sqrt(c² + d²)
-      // This correctly preserves axis association unlike SVD which returns
-      // singular values sorted by magnitude (causing x/y swap for some fonts).
       const scaleX = Math.sqrt(item.transform[0] ** 2 + item.transform[1] ** 2);
       const scaleY = Math.sqrt(item.transform[2] ** 2 + item.transform[3] ** 2);
-
-      // Get upper-right corner by first converting width/height to text space
-      // (dividing by the scale factors), then transforming to viewport space
       const ur = applyTransformation({ x: item.width / scaleX, y: item.height / scaleY }, cm);
 
-      // Calculate final bounding box in viewport space
       const left = Math.min(ll.x, ur.x);
       const right = Math.max(ll.x, ur.x);
       const top = Math.min(ll.y, ur.y);
@@ -537,34 +849,65 @@ export class PdfJsEngine implements PdfEngine {
       const width = right - left;
       const height = bottom - top;
 
-      // Calculate rotation from combined transformation matrix
+      // Get rotation angle from the transformation matrix
       let rotation = getRotation(cm);
-      // Normalize to 0-360 range
-      if (rotation < 0) {
-        rotation += 360;
-      }
+      if (rotation < 0) rotation += 360;
 
-      // Decode buggy font markers from PDF.js (only if marker is present)
-      // Format: :->|>_<charCode>_<fontChar>_<|<-:
-      let decodedStr = item.str;
-      if (decodedStr.includes(BUGGY_FONT_MARKER_CHECK)) {
-        // Try tabular figures decoding first (common in government/census PDFs)
-        const tabularDecoded = tryDecodeTabularFigures(decodedStr);
+      const pre: PreprocessedItem = {
+        item,
+        left,
+        top,
+        width,
+        height,
+        rotation,
+        isBuggyFont: false,
+      };
+
+      if (item.str.includes(BUGGY_FONT_MARKER_CHECK)) {
+        const tabularDecoded = tryDecodeTabularFigures(item.str);
         if (tabularDecoded) {
-          decodedStr = tabularDecoded;
+          pre.tabularDecoded = tabularDecoded;
         } else {
-          // Fall back to original approach: use glyph ID as character code
-          BUGGY_FONT_MARKER_REGEX.lastIndex = 0; // Reset regex state
-          decodedStr = decodedStr.replace(BUGGY_FONT_MARKER_REGEX, (_: string, charCode: string) =>
-            String.fromCharCode(parseInt(charCode))
-          );
+          pre.isBuggyFont = true;
+          const decoded = decodeBuggyFontMarkersSimple(item.str);
+          pre.buggyDecoded = decoded;
+          buggyFontItems.push({ codes: decoded.codes, fontName: item.fontName || "" });
         }
       }
 
+      preprocessed.push(pre);
+    }
+
+    // Accumulate contexts from this page's buggy font items into the document-level cache,
+    // then rebuild the mapping using ALL accumulated contexts across all pages seen so far.
+    if (buggyFontItems.length > 0) {
+      accumulateLigatureContexts(buggyFontItems, this.ligatureContextAccumulator);
+      this.resolvedLigatureMap = buildControlCharMappingFromContexts(this.ligatureContextAccumulator);
+    }
+    const controlCharMap = this.resolvedLigatureMap;
+
+    // Second pass: decode all items using the resolved mapping
+    const textItems: TextItem[] = [];
+    const garbledTextRegions: BoundingBox[] = [];
+
+    for (const pre of preprocessed) {
+      let decodedStr: string;
+
+      if (pre.tabularDecoded) {
+        decodedStr = pre.tabularDecoded;
+      } else if (pre.isBuggyFont && pre.buggyDecoded) {
+        decodedStr = applyControlCharMapping(
+          pre.buggyDecoded.codes,
+          pre.item.fontName || "",
+          controlCharMap
+        );
+      } else {
+        decodedStr = pre.item.str;
+      }
+
       // Handle pipe-separated characters: " |a|  |r|  |X| " -> "arX"
-      // Some PDFs encode text with characters separated by pipes and spaces
       if (decodedStr.includes("|")) {
-        PIPE_PATTERN_REGEX.lastIndex = 0; // Reset regex state
+        PIPE_PATTERN_REGEX.lastIndex = 0;
         const matches = [...decodedStr.matchAll(PIPE_PATTERN_REGEX)];
         if (matches.length > 0) {
           decodedStr = matches.map((m) => m[1]).join("");
@@ -572,28 +915,27 @@ export class PdfJsEngine implements PdfEngine {
       }
 
       // Skip garbled text from fonts with corrupted ToUnicode mappings
-      // Save the bounding box so OCR can fill in these specific regions
       if (isGarbledFontOutput(decodedStr)) {
-        garbledTextRegions.push({ x: left, y: top, width, height });
+        garbledTextRegions.push({ x: pre.left, y: pre.top, width: pre.width, height: pre.height });
         continue;
       }
 
-      // Strip any remaining control characters from valid text
-      // (e.g., form feed chars that sneak into ligatures like "fi")
+      // Strip remaining control characters, map Windows-1252, decompose ligatures
       decodedStr = stripControlChars(decodedStr);
 
       textItems.push({
         str: decodedStr,
-        x: left,
-        y: top,
-        width,
-        height,
-        w: width,
-        h: height,
-        r: rotation,
-        fontName: item.fontName,
+        x: pre.left,
+        y: pre.top,
+        width: pre.width,
+        height: pre.height,
+        w: pre.width,
+        h: pre.height,
+        r: pre.rotation,
+        fontName: pre.item.fontName,
         fontSize: Math.sqrt(
-          item.transform[0] * item.transform[0] + item.transform[1] * item.transform[1]
+          pre.item.transform[0] * pre.item.transform[0] +
+            pre.item.transform[1] * pre.item.transform[1]
         ),
         confidence: 1.0,
       });
@@ -634,6 +976,54 @@ export class PdfJsEngine implements PdfEngine {
     };
   }
 
+  /**
+   * Pre-scan pages for buggy font markers to build the ligature mapping
+   * before doing full extraction. This is a lightweight pass that only reads
+   * text content — no image extraction, OCR, or coordinate transforms.
+   */
+  private async prescanForLigatures(
+    doc: PdfDocument,
+    pageNumbers: number[]
+  ): Promise<void> {
+    const pdfDocument = (doc as PdfJsExtendedDocument)._pdfDocument;
+    // Sample up to 20 pages spread evenly across the document
+    const sampleSize = Math.min(pageNumbers.length, 20);
+    const step = Math.max(1, Math.floor(pageNumbers.length / sampleSize));
+    const samplePages = pageNumbers.filter((_, i) => i % step === 0).slice(0, sampleSize);
+
+    let hasBuggyFonts = false;
+
+    for (const pageNum of samplePages) {
+      const page = await pdfDocument.getPage(pageNum);
+      const tc = await page.getTextContent();
+
+      const buggyItems: Array<{ codes: number[]; fontName: string }> = [];
+      for (const item of tc.items) {
+        if (typeof item.str !== "string") continue;
+        if (item.str.includes(BUGGY_FONT_MARKER_CHECK)) {
+          const tabularDecoded = tryDecodeTabularFigures(item.str);
+          if (!tabularDecoded) {
+            const decoded = decodeBuggyFontMarkersSimple(item.str);
+            buggyItems.push({ codes: decoded.codes, fontName: item.fontName || "" });
+            hasBuggyFonts = true;
+          }
+        }
+      }
+
+      if (buggyItems.length > 0) {
+        accumulateLigatureContexts(buggyItems, this.ligatureContextAccumulator);
+      }
+
+      await page.cleanup();
+    }
+
+    if (hasBuggyFonts) {
+      this.resolvedLigatureMap = buildControlCharMappingFromContexts(
+        this.ligatureContextAccumulator
+      );
+    }
+  }
+
   async extractAllPages(
     doc: PdfDocument,
     maxPages?: number,
@@ -650,6 +1040,9 @@ export class PdfJsEngine implements PdfEngine {
     } else {
       pageNumbers = Array.from({ length: numPages }, (_, i) => i + 1);
     }
+
+    // Pre-scan pages to build ligature mapping before full extraction
+    await this.prescanForLigatures(doc, pageNumbers);
 
     for (const pageNum of pageNumbers) {
       if (maxPages && pages.length >= maxPages) {
