@@ -826,9 +826,17 @@ export function bboxToLine(
 
   function canMerge(previousBbox: ProjectionTextBox, bbox: ProjectionTextBox): boolean {
     if (bbox.y == previousBbox.y && bbox.h == previousBbox.h) {
-      const xDelta = bbox.x - previousBbox.x - previousBbox.w;
+      // Use raw pageBbox width for sub-pixel accurate gap calculation.
+      // The rounded `.w` field can cause a true −0.02px overlap to appear as +0.12px,
+      // and a −0.86px overlap to appear as −0.72px — both outside the old tolerance.
+      // PDFs sometimes encode a single value (e.g. "119:12") as a sequence of adjacent
+      // text runs whose bounding boxes touch or slightly overlap (up to ~1px) due to
+      // character spacing / kerning. We must merge these rather than treat them as
+      // separate tokens.
+      const prevRawWidth = previousBbox.pageBbox?.w ?? previousBbox.w;
+      const xDelta = bbox.x - previousBbox.x - prevRawWidth;
       if (
-        ((xDelta < 0 && xDelta > -0.5) || (xDelta >= 0 && xDelta < 0.1)) &&
+        ((xDelta < 0 && xDelta > -1.0) || (xDelta >= 0 && xDelta < 0.1)) &&
         canMergeMarkup(previousBbox, bbox)
       ) {
         return true;

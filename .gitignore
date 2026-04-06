@@ -34,6 +34,7 @@ pnpm-debug.log*
 # Test output
 screenshots/
 *.pdf
+!tests/fixtures/*.pdf
 
 # Temporary files
 tmp/
