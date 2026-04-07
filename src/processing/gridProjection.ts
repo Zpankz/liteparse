@@ -1422,17 +1422,14 @@ export function projectToGrid(
     // render it simply and skip grid projection
     if (isFlowingTextBlock(blockLines, anchorLeft, anchorRight, anchorCenter, page.width)) {
       logger.logFlowingBlock(block.start, block.end);
-      // Capture flowing lines for visualization
-      if (logger.shouldVisualize) {
-        for (let li = block.start; li < block.end; li++) {
-          logger.captureLineBoxes(li, lines[li], true);
-        }
-      }
       if (!config.preserveLayoutAlignmentAcrossPages) {
         const sizes = getMedianTextBoxSize(blockLines.flat());
         medianWidth = sizes.width;
       }
       renderFlowingBlock(lines, block, rawLines, medianWidth);
+      for (let li = block.start; li < block.end; li++) {
+        if (rawLines[li]) logger.captureRender(li, 0, rawLines[li], "flowing");
+      }
       continue;
     }
 
@@ -1576,6 +1573,7 @@ export function projectToGrid(
         rawLines[lineIndex] = renderLineAsFlowingText(line, blockMinX, medianWidth);
         flowingLines.add(lineIndex);
         logger.logFlowingLine(lineIndex, reason);
+        logger.captureRender(lineIndex, 0, rawLines[lineIndex], "flowing");
       }
 
       // First pass: detect clearly flowing lines (wide, no column gaps, enough items)
@@ -1614,13 +1612,6 @@ export function projectToGrid(
         if (flowingLines.has(lineIndex + 1) && lineMaxGap(line) < columnGapThreshold) {
           markFlowing(lineIndex, `backward propagation from line ${lineIndex + 1}`);
         }
-      }
-    }
-
-    // Capture line boxes for visualization (after snap + flowing assignment)
-    if (logger.shouldVisualize) {
-      for (let li = block.start; li < block.end; li++) {
-        logger.captureLineBoxes(li, lines[li], flowingLines.has(li));
       }
     }
 
@@ -1698,6 +1689,7 @@ export function projectToGrid(
           bbox.rendered = true;
           hasChanged = true;
           logger.logRender(bbox, lineIndex, targetX, "floating");
+          logger.captureRender(lineIndex, targetX, bbox.str, "floating");
 
           let nextBbox: ProjectionTextBox | null = null;
           if (line.length > boxIndex + 1) {
@@ -1784,6 +1776,7 @@ export function projectToGrid(
           rawLines[lineIndex] += currentLeftSnapBox.bbox.str;
           currentLeftSnapBox.bbox.rendered = true;
           logger.logRender(currentLeftSnapBox.bbox, lineIndex, targetX, "left-snap");
+          logger.captureRender(lineIndex, targetX, currentLeftSnapBox.bbox.str, "left");
 
           let nextBbox: ProjectionTextBox | null = null;
           if (lines[lineIndex].length > currentLeftSnapBox.boxIndex + 1) {
@@ -1876,6 +1869,12 @@ export function projectToGrid(
           rawLines[lineIndex] += currentRightSnapBox.bbox.str;
           currentRightSnapBox.bbox.rendered = true;
           logger.logRender(currentRightSnapBox.bbox, lineIndex, targetX, "right-snap");
+          logger.captureRender(
+            lineIndex,
+            targetX - currentRightSnapBox.bbox.strLength,
+            currentRightSnapBox.bbox.str,
+            "right"
+          );
 
           let nextBbox: ProjectionTextBox | null = null;
           if (lines[lineIndex].length > currentRightSnapBox.boxIndex + 1) {
@@ -1973,6 +1972,12 @@ export function projectToGrid(
             targetX,
             "center-snap"
           );
+          logger.captureRender(
+            currentCenterSnapBox.lineIndex,
+            targetX - Math.round(currentCenterSnapBox.bbox.strLength / 2),
+            currentCenterSnapBox.bbox.str,
+            "center"
+          );
         }
         snapMaps.center.shift();
       }
@@ -1980,6 +1985,7 @@ export function projectToGrid(
   }
 
   fixSparseBlocks(blocks, rawLines);
+  logger.captureRawLines(rawLines);
 
   const text = rawLines.join("\n");
   // OSS: Return text instead of mutating page object

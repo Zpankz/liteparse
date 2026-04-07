@@ -72,31 +72,22 @@ type LogEntry = {
   data?: Record<string, unknown>;
 };
 
+/** A segment of rendered text placed into the output grid. */
+export interface RenderedSegment {
+  lineIndex: number;
+  /** Character column where this segment starts in the output line. */
+  gridCol: number;
+  text: string;
+  snap: "left" | "right" | "center" | "floating" | "flowing";
+}
+
 /** Captured data for a single page, used by the grid visualizer. */
 export interface VisualizerPageData {
   pageNum: number;
-  width: number;
-  height: number;
-  boxes: VisualizerBox[];
-  anchors: {
-    left: number[];
-    right: number[];
-    center: number[];
-  };
-  flowingLines: Set<number>;
-  blocks: Array<{ start: number; end: number; flowing: boolean }>;
-}
-
-export interface VisualizerBox {
-  text: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  lineIndex: number;
-  snap?: "left" | "right" | "center";
-  isFlowing: boolean;
-  forceUnsnapped?: boolean;
+  /** Rendered text segments with snap type for color coding. */
+  segments: RenderedSegment[];
+  /** Final projected text lines (the actual output). */
+  rawLines: string[];
 }
 
 /**
@@ -151,7 +142,7 @@ export class GridDebugLogger {
     return this.config;
   }
 
-  setPage(pageNum: number, width: number, height: number): void {
+  setPage(pageNum: number, _width: number, _height: number): void {
     this.currentPage = pageNum;
     if (this.config.pageFilter && pageNum !== this.config.pageFilter) {
       return;
@@ -161,12 +152,8 @@ export class GridDebugLogger {
     if (this.shouldVisualize) {
       this.currentVizPage = {
         pageNum,
-        width,
-        height,
-        boxes: [],
-        anchors: { left: [], right: [], center: [] },
-        flowingLines: new Set(),
-        blocks: [],
+        segments: [],
+        rawLines: [],
       };
       this.vizPages.push(this.currentVizPage);
     }
@@ -220,17 +207,10 @@ export class GridDebugLogger {
       phase: "flowing",
       message: `Block lines ${start}-${end - 1} classified as flowing text`,
     });
-    if (this.currentVizPage) {
-      this.currentVizPage.blocks.push({ start, end, flowing: true });
-    }
   }
 
-  /** Log non-flowing block */
-  logStructuredBlock(start: number, end: number): void {
-    if (this.currentVizPage) {
-      this.currentVizPage.blocks.push({ start, end, flowing: false });
-    }
-  }
+  /** Log non-flowing block (no-op, only used for symmetry with logFlowingBlock) */
+  logStructuredBlock(_start: number, _end: number): void {}
 
   /** Log flowing line detection */
   logFlowingLine(lineIndex: number, reason: string): void {
@@ -241,9 +221,6 @@ export class GridDebugLogger {
       lineIndex,
       message: `Line ${lineIndex} marked flowing: ${reason}`,
     });
-    if (this.currentVizPage) {
-      this.currentVizPage.flowingLines.add(lineIndex);
-    }
   }
 
   /** Log anchor extraction results for a block */
@@ -262,13 +239,6 @@ export class GridDebugLogger {
       phase: "anchors",
       message: `Anchors: left=[${leftKeys.join(", ")}] right=[${rightKeys.join(", ")}] center=[${centerKeys.join(", ")}]`,
     });
-
-    // Capture for visualization
-    if (this.currentVizPage) {
-      this.currentVizPage.anchors.left.push(...leftKeys);
-      this.currentVizPage.anchors.right.push(...rightKeys);
-      this.currentVizPage.anchors.center.push(...centerKeys);
-    }
 
     // Log which elements are in each anchor, but only if they match filters
     for (const key of leftKeys) {
@@ -328,22 +298,24 @@ export class GridDebugLogger {
     });
   }
 
-  /** Capture all boxes on a line for visualization (called after snap assignment) */
-  captureLineBoxes(lineIndex: number, line: ProjectionTextBox[], isFlowing: boolean): void {
+  /** Capture a rendered text segment for visualization. */
+  captureRender(
+    lineIndex: number,
+    gridCol: number,
+    text: string,
+    snap: "left" | "right" | "center" | "floating" | "flowing"
+  ): void {
     if (!this.currentVizPage) return;
-    for (const bbox of line) {
-      this.currentVizPage.boxes.push({
-        text: bbox.str,
-        x: bbox.x,
-        y: bbox.y,
-        w: bbox.w,
-        h: bbox.h,
-        lineIndex,
-        snap: bbox.snap,
-        isFlowing,
-        forceUnsnapped: bbox.forceUnsnapped,
-      });
-    }
+    this.currentVizPage.segments.push({ lineIndex, gridCol, text, snap });
+  }
+
+  /** Capture the final raw lines after projection completes for this page. */
+  captureRawLines(rawLines: string[]): void {
+    if (!this.currentVizPage) return;
+    this.currentVizPage.rawLines = Array.from(
+      { length: rawLines.length },
+      (_, i) => rawLines[i] ?? ""
+    );
   }
 
   /** Log the rendering of a bbox to a target column position */
@@ -476,7 +448,8 @@ class NoopGridDebugLogger extends GridDebugLogger {
   override logFlowingLine(): void {}
   override logAnchors(): void {}
   override logSnapAssignment(): void {}
-  override captureLineBoxes(): void {}
+  override captureRender(): void {}
+  override captureRawLines(): void {}
   override logRender(): void {}
   override logForwardAnchor(): void {}
   override logDuplicateResolution(): void {}

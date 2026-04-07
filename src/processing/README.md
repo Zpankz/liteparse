@@ -101,16 +101,16 @@ When disabled, a zero-cost `NoopGridDebugLogger` singleton is used — no runtim
 ---
 
 ### gridVisualizer.ts
-**PNG visualization of grid projection state.**
+**PNG visualization of projected text output.**
 
-Renders a page's projection as a PNG image using sharp with an SVG overlay. Text boxes are drawn as colored rectangles by snap type:
+Renders the projected text as a monospace character grid image using sharp with an SVG overlay. Each character is drawn at its grid position, color-coded by snap type:
 - **Blue** — left snap
 - **Red** — right snap
 - **Green** — center snap
 - **Gray** — floating (unsnapped)
 - **Yellow** — flowing text
 
-Also draws vertical dashed lines for anchor positions and block boundary outlines. Includes a color legend.
+Text segments get colored background rectangles and colored text, making it easy to compare the projection output directly against the original PDF page screenshot. Includes a color legend.
 
 Called automatically when `debug.visualize` is enabled. Output files are named `page-{N}-grid.png` in the configured directory.
 
